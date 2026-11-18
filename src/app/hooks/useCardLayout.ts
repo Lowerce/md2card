@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "preact/hooks";
 import type { LayoutConfig, PageCover } from "../../domain/document";
 import { createPagePlan } from "../../layout/paginate";
+import type { ParagraphLine } from "../../layout/paragraph-flow";
 import { parseMarkdown } from "../../parser/parse-markdown";
 
 function filenameStem(filename: string): string {
@@ -20,6 +21,7 @@ export function useCardLayout({
   sourceFileName: string;
 }) {
   const [measurements, setMeasurements] = useState<Record<string, number>>({});
+  const [paragraphLines, setParagraphLines] = useState<Record<string, ParagraphLine[]>>({});
   const article = useMemo(() => parseMarkdown(markdown), [markdown]);
   const inferredTitle =
     article.title.trim() || filenameStem(sourceFileName) || "未命名笔记";
@@ -43,10 +45,10 @@ export function useCardLayout({
     [articleName, config.coverKicker, config.coverMode, config.coverSubtitle],
   );
   const pagePlan = useMemo(
-    () => createPagePlan(article, config, measurements, cover),
-    [article, config, measurements, cover],
+    () => createPagePlan(article, config, measurements, cover, paragraphLines),
+    [article, config, measurements, cover, paragraphLines],
   );
-  const acceptMeasure = useCallback((next: Record<string, number>) => {
+  const acceptMeasure = useCallback((next: Record<string, number>, lines: Record<string, ParagraphLine[]>) => {
     setMeasurements((previous) => {
       const previousKeys = Object.keys(previous);
       const nextKeys = Object.keys(next);
@@ -57,8 +59,12 @@ export function useCardLayout({
         return previous;
       return next;
     });
+    setParagraphLines(lines);
   }, []);
-  const invalidateLayout = useCallback(() => setMeasurements({}), []);
+  const invalidateLayout = useCallback(() => {
+    setMeasurements({});
+    setParagraphLines({});
+  }, []);
 
   return {
     acceptMeasure,

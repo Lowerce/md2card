@@ -1,4 +1,5 @@
 import type { ArticleDocument, Block, Diagnostic, LayoutConfig, PageCover, PageFragment, PagePlan, PagePlanPage } from '../domain/document';
+import { paragraphUnits, splitInlines, type ParagraphLine } from './paragraph-flow';
 import { canvasHeight, cardBottomPadding } from '../domain/card-metrics';
 import { inlineText } from '../parser/parse-markdown';
 
@@ -56,27 +57,6 @@ function cloneBlock(block: Block, id: string): Block {
   return { ...block, id } as Block;
 }
 
-function splitText(text: string, maxCharacters: number): string[] {
-  if (text.length <= maxCharacters) return [text];
-  const segments = text.split(/(?<=[。！？；;.!?])\s*|(?<=，|、|：|,|:)\s*/).filter(Boolean);
-  const chunks: string[] = [];
-  let current = '';
-  for (const segment of segments) {
-    if (current && current.length + segment.length > maxCharacters) {
-      chunks.push(current);
-      current = segment;
-    } else {
-      current += segment;
-    }
-  }
-  if (current) chunks.push(current);
-  if (chunks.length > 1) return chunks;
-
-  const hardChunks: string[] = [];
-  for (let start = 0; start < text.length; start += maxCharacters) hardChunks.push(text.slice(start, start + maxCharacters));
-  return hardChunks;
-}
-
 function splitOversizeBlock(
   block: Block,
   blockHeight: number,
@@ -115,27 +95,6 @@ function splitOversizeBlock(
         continuation: total > 1 ? { index: index + 1, total, label: `表格续 ${index + 1}/${total}` } : undefined,
       };
     });
-  }
-
-  if (block.kind === 'paragraph') {
-    const text = inlineText(block.children);
-    const parts = splitText(text, Math.max(100, Math.floor((text.length * available) / blockHeight)));
-    if (parts.length > 1) {
-      diagnostics.push({
-        level: 'warning',
-        message: '超长段落已按句子续页；续页中的复杂行内样式会降级为正文文本。',
-        blockId: block.id,
-      });
-      return parts.map((part, index) => {
-        const fragment = cloneBlock({ id: `${block.id}-paragraph-${index}`, kind: 'paragraph', children: [{ kind: 'text', value: part }] }, `${block.id}-paragraph-${index}`);
-        return {
-          id: fragment.id,
-          sourceId: block.id,
-          block: fragment,
-          continuation: { index: index + 1, total: parts.length, label: `正文续 ${index + 1}/${parts.length}` },
-        };
-      });
-    }
   }
 
   diagnostics.push({
@@ -246,15 +205,19 @@ export function createPagePlan(
   config: LayoutConfig,
   measurements: Record<string, number>,
   cover?: PageCover,
+  paragraphLines: Record<string, ParagraphLine[]> = {},
 ): PagePlan {
   const diagnostics: Diagnostic[] = [...article.diagnostics];
   // Density changes rendered block heights, not the physical height of a
   // 1080px card. Applying its fallback factor here would overfill relaxed
   // cards after DOM measurement has produced the real block sizes.
   const capacity = contentCapacity(config);
-  const expanded = article.blocks.flatMap((block) =>
-    splitOversizeBlock(block, measuredHeight(block, config, measurements), capacity * 0.92, diagnostics),
-  );
+  const expanded = article.blocks.flatMap<PageFragment>((block) => {
+    if (block.kind === 'paragraph') {
+      return [{ id: block.id, sourceId: block.id, block }];
+    }
+    return splitOversizeBlock(block, measuredHeight(block, config, measurements), capacity * 0.92, diagnostics);
+  });
 
   const pages: PagePlanPage[] = [];
   if (cover?.mode === 'standalone') {
@@ -306,7 +269,56 @@ export function createPagePlan(
       }
     }
 
-    if (pageHasContent && used + beforeSpacing + height > capacity) {
+    if (block.kind === 'paragraph' && config.allowParagraphSplit && used + beforeSpacing + height > capacity) {
+      const unitCount = paragraphUnits(block.children);
+      const estimatedLines = Math.max(1, Math.ceil(height / (config.bodyFontSize * config.bodyLineHeight)));
+      const measuredLines = paragraphLines[block.id];
+      const lines = measuredLines?.at(-1)?.end === unitCount ? measuredLines : Array.from({ length: estimatedLines }, (_, index) => ({
+        end: Math.floor(unitCount * (index + 1) / estimatedLines),
+        bottom: height * (index + 1) / estimatedLines,
+      }));
+      let children = block.children;
+      let offset = 0;
+      let top = 0;
+      while (offset < unitCount) {
+        const available = capacity - used - beforeSpacing;
+        let line: ParagraphLine | undefined;
+        for (const candidate of lines) {
+          if (candidate.bottom - top > available) break;
+          if (candidate.end > offset) line = candidate;
+        }
+        if (!line) {
+          if (current.length || currentCover) {
+            flush();
+            beforeSpacing = 0;
+            continue;
+          }
+          break;
+        }
+        const [head, tail] = splitInlines(children, line.end - offset);
+        const id = `${block.id}-paragraph-${offset}`;
+        current.push({ id, sourceId: block.id, block: { ...block, id, children: head }, ...(beforeSpacing ? { beforeSpacing } : {}) });
+        used += beforeSpacing + line.bottom - top;
+        offset = line.end;
+        top = line.bottom;
+        children = tail;
+        if (offset < unitCount) {
+          flush();
+          beforeSpacing = 0;
+        }
+      }
+      if (offset === unitCount && unitCount > 0) continue;
+      if (offset > 0) {
+        const id = `${block.id}-paragraph-${offset}`;
+        current.push({ id, sourceId: block.id, block: { ...block, id, children } });
+        used += height - top;
+        diagnostics.push({ level: 'error', message: '该段落包含无法放入单张卡片的行，请调整字号或内容。', blockId: block.id });
+        flush();
+        continue;
+      }
+    }
+
+    if ((current.length || currentCover) && used + beforeSpacing + height > capacity) {
       flush();
       beforeSpacing = 0;
     }
@@ -314,7 +326,17 @@ export function createPagePlan(
     used += beforeSpacing + height;
 
     if (height > capacity) {
-      diagnostics.push({ level: 'warning', message: '该页面包含无法进一步安全拆分的超高内容，请检查公式或资源。', blockId: block.id });
+      if (block.kind === 'paragraph' && !config.allowParagraphSplit) {
+        const text = Array.from(inlineText(block.children).replace(/\s+/g, ' ').trim());
+        const excerpt = `${text.slice(0, 30).join('')}${text.length > 30 ? '…' : ''}`;
+        diagnostics.push({
+          level: 'error',
+          message: `第 ${pages.length + 1} 张卡片的段落「${excerpt}」无法完整放入单张卡片。请在 Markdown 中手动分段、调小正文字号，或开启正文段落跨卡片。`,
+          blockId: block.id,
+        });
+      } else {
+        diagnostics.push({ level: 'warning', message: '该页面包含无法进一步安全拆分的超高内容，请检查公式或资源。', blockId: block.id });
+      }
       flush();
     }
   }

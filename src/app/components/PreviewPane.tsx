@@ -81,6 +81,13 @@ export function PreviewPane({
         </div>
       </div>
       <div class="preview-scroll" style={previewStyle}>
+        {hasExportErrors && (
+          <div class="preview-layout-errors" role="alert">
+            {pagePlan.diagnostics.filter((item) => item.level === "error").map((item) => (
+              <p key={item.blockId ?? item.message}>{item.message}</p>
+            ))}
+          </div>
+        )}
         {pagePlan.pages.map((page) => (
           <div key={page.id} class="preview-frame">
             <div class="preview-scale">

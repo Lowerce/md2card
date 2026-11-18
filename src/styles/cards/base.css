@@ -48,6 +48,36 @@
   font-family: "Times New Roman", "Nimbus Roman No9 L", "Liberation Serif", "Noto Sans SC Variable", "Noto Sans SC", "Microsoft YaHei", serif;
 }
 
+.card-page {
+  position: relative;
+  isolation: isolate;
+}
+
+.card-watermark {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  color: var(--theme-on-surface);
+  text-shadow: 0 0 1px #fff, 0 0 2px #fff;
+}
+
+.card-watermark-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max-content;
+  max-width: 1440px;
+  transform: translate(-50%, -50%) rotate(-54deg);
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 /* Shared reading grammar: hierarchy comes from roles and rhythm, never from a
  * different decorative device for every Markdown block. */
 .card-page .card-content,
@@ -129,7 +159,7 @@
 .measure-stage .heading.depth-5,
 .measure-stage .heading.depth-6 {
   color: var(--theme-on-surface);
-  font-size: 30px;
+  font-size: var(--body-size);
   font-weight: 720;
   line-height: 1.4;
   letter-spacing: -.02em;
@@ -350,7 +380,7 @@
   padding: 11px 3px 0;
   border-top: 1px solid var(--theme-outline-variant);
   color: var(--theme-on-surface-variant);
-  font-size: 18px;
+  font-size: max(18px, .7em);
   font-weight: 500;
   line-height: 1.55;
   text-align: left;
@@ -369,15 +399,12 @@
 .card-page .image-card,
 .measure-stage .image-card {
   padding: 12px;
-  border: 1px solid var(--theme-outline-variant);
   border-radius: var(--shape-container);
-  background: var(--theme-surface-container-low);
 }
 
 .card-page .image-card img,
 .measure-stage .image-card img {
   border-radius: var(--shape-technical);
-  background: var(--theme-surface-container);
 }
 
 .card-page .image-card figcaption,
@@ -386,7 +413,7 @@
   padding: 11px 3px 0;
   border-top: 1px solid var(--theme-outline-variant);
   color: var(--theme-on-surface-variant);
-  font-size: 18px;
+  font-size: max(18px, .7em);
   font-weight: 500;
   line-height: 1.55;
 }

@@ -9,5 +9,12 @@ export function CanvasSettings({ config, articleName, onConfigChange, onEditArti
     {config.coverMode !== "none" && <><p class="cover-title-source">封面标题：<strong title={articleName}>{articleName}</strong><button type="button" onClick={onEditArticle}>到编辑区修改</button></p><div class="cover-copy-fields"><label class="text-field">封面标签（可选）<input value={config.coverKicker} placeholder="例如：学习笔记" onInput={(event) => onConfigChange("coverKicker", event.currentTarget.value)} /></label><label class="text-field">副标题（可选）<input value={config.coverSubtitle} placeholder="一句话说明文章内容" onInput={(event) => onConfigChange("coverSubtitle", event.currentTarget.value)} /></label></div></>}
     <h4>画布留白</h4><div class="setting-control-grid"><label class="range-label">左右安全边距 <output>{config.cardHorizontalPadding}px</output><input type="range" min="60" max="92" step="2" value={config.cardHorizontalPadding} onInput={(event) => onConfigChange("cardHorizontalPadding", Number(event.currentTarget.value))} /></label><label class="range-label">上下安全留白 <output>{config.cardVerticalPadding}px</output><input type="range" min="50" max="88" step="2" value={config.cardVerticalPadding} onInput={(event) => onConfigChange("cardVerticalPadding", Number(event.currentTarget.value))} /></label></div>
     <h4>页码</h4><label class="check-label"><input type="checkbox" checked={config.showPageNumber} onChange={(event) => onConfigChange("showPageNumber", event.currentTarget.checked)} /> 显示右下角页码</label>
+    <h4>水印</h4>
+    <label class="check-label"><input type="checkbox" checked={config.showWatermark} onChange={(event) => onConfigChange("showWatermark", event.currentTarget.checked)} /> 全图水印</label>
+    {config.showWatermark && <>
+      <label class="text-field">水印 ID<input type="text" value={config.watermarkId} placeholder="例如：@我的账号" onInput={(event) => onConfigChange("watermarkId", event.currentTarget.value)} /></label>
+      <label class="range-label">水印不透明度 <output>{config.watermarkOpacity}%</output><input type="range" min="1" max="50" value={config.watermarkOpacity} onInput={(event) => onConfigChange("watermarkOpacity", Number(event.currentTarget.value))} /></label>
+    </>}
+    <p class="field-help">每张卡片中央沿对角线显示一个大号 ID，预览和导出一致。留空不显示。</p>
   </section>;
 }

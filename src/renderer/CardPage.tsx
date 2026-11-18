@@ -15,6 +15,8 @@ export const CardPage = forwardRef<HTMLElement, {
   const pageNumber = String(page.index + 1).padStart(2, '0');
   const total = String(totalPages).padStart(2, '0');
   const standaloneCover = page.cover?.mode === 'standalone';
+  const watermarkId = config.showWatermark ? config.watermarkId.trim() : '';
+  const watermarkFontSize = Math.min(160, 1360 / Math.max(1, Array.from(watermarkId).length));
   return (
     <article ref={ref} class={`card-page theme-${config.cardTheme} density-${config.density} code-appearance-${config.codeBlockAppearance}`} style={style} data-card-page={page.index + 1}>
       <main class={`card-content${standaloneCover ? ' cover-only' : ''}`}>
@@ -29,6 +31,9 @@ export const CardPage = forwardRef<HTMLElement, {
       {config.showPageNumber && !standaloneCover && <footer class="card-footer">
         <span class="page-number">{pageNumber} / {total}</span>
       </footer>}
+      {watermarkId && <div class="card-watermark" aria-hidden="true" style={{ opacity: config.watermarkOpacity / 100 }}>
+        <span class="card-watermark-text" dir="auto" style={{ fontSize: `${watermarkFontSize}px` }}>{watermarkId}</span>
+      </div>}
     </article>
   );
 });

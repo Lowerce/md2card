@@ -4,7 +4,7 @@ import {
   useState,
 } from "preact/hooks";
 import type { LayoutConfig } from "../domain/document";
-import { DEFAULT_CONFIG, DENSITY_PRESETS } from "../domain/document";
+import { DEFAULT_CONFIG, DENSITY_PRESETS, restoreLayoutConfig } from "../domain/document";
 import { STARTER_MARKDOWN } from "../data/starter-markdown";
 import { MeasureStage } from "../renderer/MeasureStage";
 import {
@@ -193,11 +193,10 @@ export function App() {
       imageBindingOverrides,
     },
     onRestore: (draft) => {
-      if (!draft?.markdown) return;
+      if (!draft) return;
       setMarkdown(draft.markdown);
       setConfig({
-        ...DEFAULT_CONFIG,
-        ...(draft.config ?? {}),
+        ...restoreLayoutConfig(draft.config),
         cardTheme: normalizeCardTheme(draft.config?.cardTheme),
         codeBlockAppearance: normalizeCodeBlockAppearance(
           draft.config?.codeBlockAppearance,

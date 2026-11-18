@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_CONFIG, DENSITY_PRESETS } from '../../src/domain/document';
+import { DEFAULT_CONFIG, DENSITY_PRESETS, restoreLayoutConfig } from '../../src/domain/document';
 import { STARTER_MARKDOWN } from '../../src/data/starter-markdown';
 import { createPagePlan } from '../../src/layout/paginate';
 import { parseMarkdown } from '../../src/parser/parse-markdown';
+import { cardStyle } from '../../src/renderer/card-style';
 import {
   articleImageUrls,
   buildImageResourceIndex,
@@ -17,6 +18,34 @@ const completeExample = readFileSync(
   resolve(import.meta.dirname, '../../examples/Md2Card Example.md'),
   'utf8',
 );
+
+describe('卡片阅读排版', () => {
+  it('旧草稿默认使用 10% 水印不透明度，新草稿保留自定义水印设置', () => {
+    const saved = { showWatermark: true, watermarkId: '@我的账号' };
+    expect(restoreLayoutConfig(saved)).toMatchObject({ ...saved, watermarkOpacity: 10 });
+    expect(restoreLayoutConfig({ ...saved, watermarkOpacity: 23 })).toMatchObject({ ...saved, watermarkOpacity: 23 });
+  });
+
+  it('采用放大的默认字号，并更新旧草稿的命名预设', () => {
+    expect(restoreLayoutConfig()).toEqual(DEFAULT_CONFIG);
+    expect(DEFAULT_CONFIG).toMatchObject({ bodyFontSize: 36, codeFontSize: 28, tableFontSize: 28 });
+    expect(restoreLayoutConfig({ density: 'balanced', bodyFontSize: 30, codeFontSize: 23, tableFontSize: 25 }))
+      .toMatchObject({ bodyFontSize: 36, codeFontSize: 28, tableFontSize: 25 });
+  });
+
+  it('保留自定义排版，并将放大后的字号和间距传给卡片', () => {
+    const custom = { density: 'custom', bodyFontSize: 48, bodyLineHeight: 2, blockGap: 50 } as const;
+    const config = restoreLayoutConfig(custom);
+    expect(config).toMatchObject(custom);
+    expect(cardStyle(config)).toMatchObject({
+      '--body-size': '48px',
+      '--body-line-height': '2',
+      '--block-gap': '50px',
+      '--heading-2': '77px',
+      '--heading-3': '58px',
+    });
+  });
+});
 
 describe('技术 Markdown 解析', () => {
   it('新文章默认使用 macOS 浅色代码块外观', () => {
@@ -105,15 +134,74 @@ describe('技术 Markdown 解析', () => {
     expect(article.blocks.some((block) => block.kind === 'code')).toBe(true);
   });
 
-  it('将超高表格按行续页，并在续页中重复表头', () => {
+  it('默认拆分超长段落；关闭后保留原段及格式，并报告阻止导出的错误', () => {
+    const article = parseMarkdown(`# 访谈\n\n**问：** ${'这是一段需要考虑分页的文字。'.repeat(50)}`);
+    const [paragraph] = article.blocks;
+    const measurements = { [paragraph.id]: 2_400 };
+    const enabled = createPagePlan(article, DEFAULT_CONFIG, measurements);
+    expect(enabled.pages.flatMap((page) => page.fragments).length).toBeGreaterThan(1);
+    expect(enabled.diagnostics.some((item) => item.level === 'error')).toBe(false);
+
+    const disabled = createPagePlan(article, { ...DEFAULT_CONFIG, allowParagraphSplit: false }, measurements);
+    expect(disabled.pages).toHaveLength(1);
+    expect(disabled.pages[0].fragments).toEqual([{ id: paragraph.id, sourceId: paragraph.id, block: paragraph }]);
+    expect(disabled.diagnostics).toEqual([{
+      level: 'error',
+      blockId: paragraph.id,
+      message: expect.stringContaining('第 1 张卡片的段落「问：'),
+    }]);
+  });
+
+  it('关闭后，将能放进空卡片的长段落整体移页，并保留显式分页', () => {
+    const article = parseMarkdown(`# 访谈\n\n前置正文。\n\n${'接下来是一段较长的回答。'.repeat(30)}\n\n<!-- md2card:break -->\n\n最后一段。`);
+    const [before, paragraph, , after] = article.blocks;
+    const plan = createPagePlan(article, { ...DEFAULT_CONFIG, allowParagraphSplit: false }, {
+      [before.id]: 350,
+      [paragraph.id]: 1_180,
+      [after.id]: 100,
+    });
+    expect(plan.pages.map((page) => page.fragments.map((fragment) => fragment.id))).toEqual([[before.id], [paragraph.id], [after.id]]);
+    expect(plan.diagnostics.some((item) => item.level === 'error')).toBe(false);
+  });
+
+  it('开启后按实际行填充当前卡片，不等待标点，且跨卡保留行内结构', () => {
+    const article = parseMarkdown('# 访谈\n\n前置正文。\n\n**甲👩‍💻乙丙**[丁戊](https://example.com)庚辛');
+    const [before, paragraph] = article.blocks;
+    const measurements = { [before.id]: 1_090, [paragraph.id]: 270 };
+    const lineMetrics = { [paragraph.id]: [{ end: 3, bottom: 90 }, { end: 6, bottom: 180 }, { end: 8, bottom: 270 }] };
+    const enabled = createPagePlan(article, DEFAULT_CONFIG, measurements, undefined, lineMetrics);
+    expect(enabled.pages.map((page) => page.fragments.map((fragment) => fragment.sourceId))).toEqual([[before.id, paragraph.id], [paragraph.id]]);
+    expect(enabled.pages[0].fragments[1]).toMatchObject({ block: { children: [{ kind: 'strong', children: [{ kind: 'text', value: '甲👩‍💻乙' }] }] } });
+    expect(enabled.pages[1].fragments[0]).toMatchObject({ block: { children: [
+      { kind: 'strong', children: [{ kind: 'text', value: '丙' }] },
+      { kind: 'link', url: 'https://example.com', children: [{ kind: 'text', value: '丁戊' }] },
+      { kind: 'text', value: '庚辛' },
+    ] } });
+    expect(enabled.pages.flatMap((page) => page.fragments).some((fragment) => fragment.continuation)).toBe(false);
+    const disabled = createPagePlan(article, { ...DEFAULT_CONFIG, allowParagraphSplit: false }, measurements, undefined, lineMetrics);
+    expect(disabled.pages[1].fragments[0].block).toBe(paragraph);
+  });
+
+  it.each([true, false])('将超高表格按行续页并重复表头（正文拆分 %s）', (allowParagraphSplit) => {
     const rows = Array.from({ length: 26 }, (_, index) => `| 行 ${index + 1} | 用于分页的长说明 |`).join('\n');
     const article = parseMarkdown(`# 表格\n\n| 名称 | 说明 |\n| --- | --- |\n${rows}`);
     const table = article.blocks.find((block) => block.kind === 'table');
     if (!table || table.kind !== 'table') throw new Error('测试前提：应解析出表格');
-    const plan = createPagePlan(article, DEFAULT_CONFIG, { [table.id]: 2_200 });
+    const plan = createPagePlan(article, { ...DEFAULT_CONFIG, allowParagraphSplit }, { [table.id]: 2_200 });
     const fragments = plan.pages.flatMap((page) => page.fragments).filter((fragment) => fragment.block.kind === 'table');
     expect(fragments.length).toBeGreaterThan(1);
     expect(fragments.every((fragment) => fragment.block.kind === 'table' && fragment.block.rows[0][0][0].kind === 'text' && fragment.block.rows[0][0][0].value === '名称')).toBe(true);
+  });
+
+  it('关闭正文拆分不影响代码按行续页', () => {
+    const lines = Array.from({ length: 60 }, (_, index) => `第 ${index + 1} 行`).join('\n');
+    const article = parseMarkdown(`# 代码\n\n\`\`\`text\n${lines}\n\`\`\``);
+    const [code] = article.blocks;
+    const plan = createPagePlan(article, { ...DEFAULT_CONFIG, allowParagraphSplit: false }, { [code.id]: 2_200 });
+    const fragments = plan.pages.flatMap((page) => page.fragments);
+    expect(fragments.length).toBeGreaterThan(1);
+    expect(fragments.map(({ block }) => block.kind === 'code' ? block.value : '').join('\n')).toBe(lines);
+    expect(plan.diagnostics.some((item) => item.level === 'error')).toBe(false);
   });
 
   it('将页尾的 H2、短引言、首个 H3 与首段作为一个标题簇回退到下一页', () => {

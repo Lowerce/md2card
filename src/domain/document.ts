@@ -60,12 +60,16 @@ export interface LayoutConfig {
   headingH2TailPercent: number;
   headingH3TailPercent: number;
   headingH4TailPercent: number;
+  allowParagraphSplit: boolean;
   codeLineNumbers: boolean;
   codeBlockAppearance: CodeBlockAppearance;
   cardHorizontalPadding: number;
   cardVerticalPadding: number;
   imageMaxHeightPercent: number;
   showPageNumber: boolean;
+  showWatermark: boolean;
+  watermarkId: string;
+  watermarkOpacity: number;
   cardTheme: CardTheme;
   coverMode: CoverMode;
   coverKicker: string;
@@ -73,26 +77,54 @@ export interface LayoutConfig {
   exportScale: 1 | 2;
 }
 
+export const DENSITY_PRESETS: Record<Exclude<Density, 'custom'>, Pick<LayoutConfig,
+  'bodyFontSize' | 'bodyLineHeight' | 'blockGap' | 'headingH2BeforeSpacing' | 'headingH3BeforeSpacing' | 'codeFontSize'
+>> = {
+  relaxed: {
+    bodyFontSize: 40,
+    bodyLineHeight: 1.68,
+    blockGap: 21,
+    headingH2BeforeSpacing: 40,
+    headingH3BeforeSpacing: 24,
+    codeFontSize: 30,
+  },
+  balanced: {
+    bodyFontSize: 36,
+    bodyLineHeight: 1.62,
+    blockGap: 16,
+    headingH2BeforeSpacing: 32,
+    headingH3BeforeSpacing: 20,
+    codeFontSize: 28,
+  },
+  compact: {
+    bodyFontSize: 32,
+    bodyLineHeight: 1.54,
+    blockGap: 11,
+    headingH2BeforeSpacing: 24,
+    headingH3BeforeSpacing: 14,
+    codeFontSize: 25,
+  },
+};
+
 export const DEFAULT_CONFIG: LayoutConfig = {
   ratio: '3:4',
   density: 'balanced',
-  bodyFontSize: 30,
-  bodyLineHeight: 1.62,
-  blockGap: 16,
-  headingH2BeforeSpacing: 32,
-  headingH3BeforeSpacing: 20,
-  codeFontSize: 23,
-  tableFontSize: 23,
+  ...DENSITY_PRESETS.balanced,
+  tableFontSize: 28,
   mathScale: 1,
   headingH2TailPercent: 22,
   headingH3TailPercent: 11,
   headingH4TailPercent: 6,
+  allowParagraphSplit: true,
   codeLineNumbers: false,
   codeBlockAppearance: 'macos',
   cardHorizontalPadding: 76,
   cardVerticalPadding: 67,
   imageMaxHeightPercent: 53,
   showPageNumber: true,
+  showWatermark: false,
+  watermarkId: '',
+  watermarkOpacity: 10,
   cardTheme: 'minimal',
   coverMode: 'integrated',
   coverKicker: '',
@@ -100,34 +132,10 @@ export const DEFAULT_CONFIG: LayoutConfig = {
   exportScale: 1,
 };
 
-export const DENSITY_PRESETS: Record<Exclude<Density, 'custom'>, Pick<LayoutConfig,
-  'bodyFontSize' | 'bodyLineHeight' | 'blockGap' | 'headingH2BeforeSpacing' | 'headingH3BeforeSpacing' | 'codeFontSize'
->> = {
-  relaxed: {
-    bodyFontSize: 32,
-    bodyLineHeight: 1.68,
-    blockGap: 21,
-    headingH2BeforeSpacing: 40,
-    headingH3BeforeSpacing: 24,
-    codeFontSize: 24,
-  },
-  balanced: {
-    bodyFontSize: 30,
-    bodyLineHeight: 1.62,
-    blockGap: 16,
-    headingH2BeforeSpacing: 32,
-    headingH3BeforeSpacing: 20,
-    codeFontSize: 23,
-  },
-  compact: {
-    bodyFontSize: 27,
-    bodyLineHeight: 1.54,
-    blockGap: 11,
-    headingH2BeforeSpacing: 24,
-    headingH3BeforeSpacing: 14,
-    codeFontSize: 21,
-  },
-};
+export function restoreLayoutConfig(saved?: Partial<LayoutConfig>): LayoutConfig {
+  const config = { ...DEFAULT_CONFIG, ...saved };
+  return config.density === 'custom' ? config : { ...config, ...DENSITY_PRESETS[config.density] };
+}
 
 export interface PageFragment {
   id: string;

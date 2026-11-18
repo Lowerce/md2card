@@ -50,10 +50,8 @@ export function useExportWorkflow({
     status: "idle",
     message: "",
   });
-  const exportHasErrors = useMemo(
-    () => pagePlan.diagnostics.some((item) => item.level === "error"),
-    [pagePlan.diagnostics],
-  );
+  const blockingError = pagePlan.diagnostics.find((item) => item.level === "error");
+  const exportHasErrors = Boolean(blockingError);
   const diagnosticWarningCount = useMemo(
     () => pagePlan.diagnostics.filter((item) => item.level === "warning").length,
     [pagePlan.diagnostics],
@@ -65,8 +63,7 @@ export function useExportWorkflow({
       message: "正在检查字体、图片和卡片边界…",
     });
     try {
-      if (exportHasErrors)
-        throw new Error("Markdown 存在解析错误，请先处理页面提示。");
+      if (blockingError) throw new Error(blockingError.message);
       const cards = readCardNodes(pagePlan, cardRefs);
       if (!cards.length) throw new Error("卡片仍在生成，请稍后重试。");
       if ("fonts" in document) await document.fonts.ready;
@@ -119,6 +116,7 @@ export function useExportWorkflow({
   const handleExport = async () => {
     const cards = readCardNodes(pagePlan, cardRefs);
     try {
+      if (blockingError) throw new Error(blockingError.message);
       setExportState({
         status: "running",
         message: `正在生成 0 / ${cards.length} 张 PNG…`,
